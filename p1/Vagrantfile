@@ -1,2 +1,45 @@
-# P1: define achraitiS (192.168.56.110) and achraitiSW (192.168.56.111).
-# We will build this file step by step.
+Vagrant.configure("2") do |config|
+  # Base operating system used by both machines.
+  config.vm.box = "debian/bookworm64"
+  config.vm.box_version = "12.20260519.1"
+
+  # Vagrant uploads provisioning scripts itself, so NFS is unnecessary.
+  config.vm.synced_folder ".", "/vagrant", disabled: true
+
+  # Give slower nested VMs enough time to boot.
+  config.vm.boot_timeout = 600
+
+
+  # K3s Server / Controller
+  config.vm.define "mel-haddS", primary: true do |server|
+    server.vm.hostname = "mel-haddS"
+
+    server.vm.network "private_network",
+      ip: "192.168.56.110"
+
+    server.vm.provider :libvirt do |libvirt|
+      libvirt.cpus = 1
+      libvirt.memory = 1024
+    end
+
+    server.vm.provision "shell",
+      path: "scripts/install_server.sh",
+      privileged: true
+  end
+
+
+  # K3s Worker / Agent
+  config.vm.define "mel-haddSW" do |worker|
+    worker.vm.hostname = "mel-haddSW"
+
+    worker.vm.network "private_network",
+      ip: "192.168.56.111"
+
+    worker.vm.provider :libvirt do |libvirt|
+      libvirt.cpus = 1
+      libvirt.memory = 1024
+    end
+
+    # TODO: Add the worker provisioner after its script is ready.
+  end
+end
