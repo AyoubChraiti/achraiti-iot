@@ -7,7 +7,10 @@ k get namespace argocd dev
 k wait --for=condition=Ready nodes --all --timeout=180s
 # Wait for a fully synchronized, healthy application at the expected version.
 for ((attempt=0; attempt<120; attempt++)); do
-  state=$(k -n argocd get application wil-playground -o json)
+  if ! state=$(k -n argocd get application wil-playground -o json --request-timeout=10s); then
+    sleep 5
+    continue
+  fi
   if jq -e '
     .status.sync.status == "Synced" and .status.health.status == "Healthy" and
     .status.sync.comparedTo.source.repoURL == .spec.source.repoURL and
