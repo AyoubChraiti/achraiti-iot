@@ -1,0 +1,22 @@
+# OPTIONAL: Use this to enable GitOps auto-sync from GitHub
+# First, update the repoURL with YOUR GitHub username and repository
+# Then run: kubectl apply -f argocd-app.yaml
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: wil-playground
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/YOUR_USERNAME/YOUR_REPO
+    targetRevision: HEAD
+    path: p3/confs
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: dev
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
