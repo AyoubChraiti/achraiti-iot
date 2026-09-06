@@ -1,123 +1,56 @@
 #!/bin/bash
-
-set -e
-
-CLUSTER_NAME="iot-cluster"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFS_DIR="$(dirname "$SCRIPT_DIR")/confs"
-
-# ==============================================================================
-# STEP 1: Install dependencies
-# ==============================================================================
-
-echo "Installing dependencies..."
-
-if ! command -v docker &> /dev/null; then
-    apt-get update > /dev/null 2>&1
-    apt-get install -y docker.io > /dev/null 2>&1
-    systemctl start docker
-    systemctl enable docker
-fi
-
-if ! command -v kubectl &> /dev/null; then
-    curl -sLO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-    chmod +x kubectl
-    mv kubectl /usr/local/bin/
-fi
-
-if ! command -v k3d &> /dev/null; then
-    curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash > /dev/null 2>&1
-fi
-
-echo "Dependencies installed."
-
-# ==============================================================================
-# STEP 2: Create K3d cluster
-# ==============================================================================
-
-echo "Setting up K3d cluster..."
-
-if ! k3d cluster list 2>/dev/null | grep -q "$CLUSTER_NAME"; then
-    k3d cluster create "$CLUSTER_NAME" \
-        --servers 1 \
-        --agents 0 \
-        --port 8080:80@loadbalancer \
-        --port 8443:443@loadbalancer \
-        --wait > /dev/null 2>&1
-fi
-
-k3d kubeconfig merge "$CLUSTER_NAME" --switch-context > /dev/null 2>&1
-
-echo "Cluster ready."
-
-# ==============================================================================
-# STEP 3: Create namespaces
-# ==============================================================================
-
-echo "Creating namespaces..."
-
-for ns in argocd dev; do
-    kubectl get namespace "$ns" &> /dev/null || kubectl create namespace "$ns" > /dev/null 2>&1
+set -euo pipefail
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+CONFS_DIR=$SCRIPT_DIR/../confs
+# shellcheck source=../confs/versions.env
+source "$CONFS_DIR/versions.env"
+for tool in docker k3d kubectl curl jq git; do
+  command -v "$tool" >/dev/null || { echo "Missing $tool. Run sudo bash p3/scripts/install-tools.sh first." >&2; exit 1; }
 done
-
-echo "Namespaces created."
-
-# ==============================================================================
-# STEP 4: Install Argo CD
-# ==============================================================================
-
-echo "Installing Argo CD..."
-
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml > /dev/null 2>&1
-
-kubectl wait --for=condition=available --timeout=300s \
-    deployment/argocd-server -n argocd > /dev/null 2>&1 || true
-
-echo "Argo CD installed."
-
-# ==============================================================================
-# STEP 5: Deploy application
-# ==============================================================================
-
-echo "Deploying application..."
-
-kubectl apply -f "$CONFS_DIR/deployment.yaml" > /dev/null 2>&1
-kubectl apply -f "$CONFS_DIR/service.yaml" > /dev/null 2>&1
-
-sleep 5
-kubectl wait --for=condition=ready pod -l app=wil-playground -n dev --timeout=120s > /dev/null 2>&1 || true
-
-echo "Application deployed."
-
-# ==============================================================================
-# STEP 6: Get credentials
-# ==============================================================================
-
-ADMIN_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" 2>/dev/null | base64 -d || echo "Not ready yet")
-
-# ==============================================================================
-# Output summary
-# ==============================================================================
-
-echo ""
-echo "=========================================="
-echo "Setup Complete"
-echo "=========================================="
-echo ""
-echo "Cluster Status:"
-echo "  Name:       $CLUSTER_NAME"
-echo "  Nodes:      $(kubectl get nodes --no-headers 2>/dev/null | wc -l)"
-echo "  Namespaces: argocd, dev"
-echo ""
-echo "Argo CD:"
-echo "  Username: admin"
-echo "  Password: $ADMIN_PASSWORD"
-echo ""
-echo "Access the Application:"
-echo "  kubectl port-forward -n dev svc/wil-playground 8888:8888 &"
-echo "  curl http://localhost:8888/"
-echo ""
-echo "Access Argo CD Dashboard:"
-echo "  kubectl port-forward -n argocd svc/argocd-server 8080:443 &"
-echo "  Open: https://localhost:8080"
-echo ""
+docker info >/dev/null
+# Check anonymously: the subject requires a public repository.
+REPO_URL=$(sed -n 's/^    repoURL: //p' "$CONFS_DIR/argocd-app.yaml")
+if ! GIT_TERMINAL_PROMPT=0 git -c credential.helper= ls-remote "$REPO_URL" refs/heads/main | grep -q refs/heads/main; then
+  echo "Publish this project on the public repository $REPO_URL (main branch), then rerun." >&2
+  exit 1
+fi
+if ! k3d cluster list -o json | jq -e '.[] | select(.name == "iot-cluster")' >/dev/null; then
+  k3d cluster create iot-cluster \
+    --image "rancher/k3s:${K3S_VERSION/+/-}" \
+    --servers 1 --agents 0 \
+    --port '127.0.0.1:8888:30888@server:0' \
+    --port '127.0.0.1:8081:30081@server:0' \
+    --k3s-arg '--disable=traefik,servicelb,metrics-server@server:0' \
+    --wait --timeout 180s
+else
+  k3d cluster start iot-cluster
+fi
+if ! docker inspect k3d-iot-cluster-server-0 | jq -e '
+  .[0].HostConfig.PortBindings |
+  any(."30888/tcp"[]?; .HostPort == "8888" and .HostIp == "127.0.0.1") and
+  any(."30081/tcp"[]?; .HostPort == "8081" and .HostIp == "127.0.0.1")
+' >/dev/null; then
+  echo 'Existing cluster has different port mappings. See README before replacing it; deleting it removes local GitLab data.' >&2
+  exit 1
+fi
+k3d kubeconfig merge iot-cluster --kubeconfig-switch-context
+# Always target this lab, even if another cluster is the current context.
+k() { kubectl --context k3d-iot-cluster "$@"; }
+k wait --for=condition=Ready nodes --all --timeout=180s
+k apply -f "$CONFS_DIR/namespace.yaml"
+k apply --server-side --force-conflicts -n argocd \
+  -f "https://raw.githubusercontent.com/argoproj/argo-cd/$ARGOCD_VERSION/manifests/install.yaml"
+# More responsive polling makes the v1/v2 demonstration easier to follow.
+k -n argocd patch configmap argocd-cm --type merge \
+  -p '{"data":{"timeout.reconciliation":"30s","timeout.reconciliation.jitter":"0s"}}'
+k -n argocd rollout restart deployment/argocd-repo-server statefulset/argocd-application-controller
+k -n argocd wait --for=condition=Established crd/applications.argoproj.io --timeout=120s
+k -n argocd rollout status deployment/argocd-server --timeout=600s
+k -n argocd rollout status deployment/argocd-repo-server --timeout=600s
+k -n argocd rollout status statefulset/argocd-application-controller --timeout=600s
+# Argo CD fetches Git and deploys the app. Do not apply deployment.yaml here.
+k apply -f "$CONFS_DIR/argocd-app.yaml"
+bash "$SCRIPT_DIR/test.sh"
+echo 'Argo CD login: admin (retrieve its password with the command in README.md).'
+echo 'App: http://localhost:8888'
+echo 'Dashboard: kubectl --context k3d-iot-cluster -n argocd port-forward svc/argocd-server 8080:443'

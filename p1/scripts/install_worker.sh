@@ -1,34 +1,15 @@
 #!/bin/sh
-
 set -eu
-
-SERVER_IP="192.168.56.110"
-WORKER_IP="192.168.56.111"
-WORKER_NODE="achraitisw"
-
+WORKER_IP=192.168.56.111
 : "${K3S_TOKEN:?K3S_TOKEN is required}"
-
-echo "[worker] Installing dependencies..."
-
 apt-get update
 apt-get install -y curl ca-certificates
-
-echo "[worker] Waiting for the server..."
-
-until curl -ks --connect-timeout 2 \
-  "https://${SERVER_IP}:6443/ping" >/dev/null
-do
-  sleep 2
-done
-
-echo "[worker] Installing K3s agent..."
-
-curl -sfL https://get.k3s.io |
-  K3S_URL="https://${SERVER_IP}:6443" \
-  K3S_TOKEN="$K3S_TOKEN" \
-  INSTALL_K3S_EXEC="agent \
-    --node-ip=${WORKER_IP} \
-    --node-name=${WORKER_NODE}" \
-  sh -
-
-echo "[worker] Ready."
+swapoff -a
+IFACE=$(ip -o -4 addr show | awk -v ip="$WORKER_IP/" 'index($4, ip) == 1 {print $2}')
+: "${IFACE:?Cannot find the private network interface}"
+timeout 180 sh -c 'until curl -fksS --connect-timeout 2 --max-time 5 https://192.168.56.110:6443/ping >/dev/null; do sleep 2; done'
+curl -fsSL --retry 3 https://get.k3s.io -o /tmp/install-k3s.sh
+K3S_URL=https://192.168.56.110:6443 \
+  INSTALL_K3S_EXEC="agent --node-ip=$WORKER_IP --flannel-iface=$IFACE --node-name=achraitisw" \
+  sh /tmp/install-k3s.sh
+systemctl is-active --quiet k3s-agent
