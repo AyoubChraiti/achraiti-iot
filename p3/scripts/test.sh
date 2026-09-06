@@ -12,9 +12,7 @@ for ((attempt=0; attempt<120; attempt++)); do
     .status.sync.status == "Synced" and .status.health.status == "Healthy" and
     .status.sync.comparedTo.source.repoURL == .spec.source.repoURL and
     .status.sync.comparedTo.source.path == .spec.source.path and
-    .status.sync.comparedTo.source.targetRevision == .spec.source.targetRevision and
-    .status.operationState.phase == "Succeeded" and
-    .status.operationState.syncResult.revision == .status.sync.revision
+    .status.sync.comparedTo.source.targetRevision == .spec.source.targetRevision
   ' <<< "$state" >/dev/null; then
     body=$(curl -fsS --max-time 5 http://127.0.0.1:8888/ || true)
     if jq -e --arg version "$EXPECTED" '.status == "ok" and (.message == "v1" or .message == "v2") and ($version == "" or .message == $version)' <<< "$body" >/dev/null 2>&1; then

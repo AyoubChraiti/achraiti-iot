@@ -25,7 +25,8 @@ if ! k3d cluster list -o json | jq -e '.[] | select(.name == "iot-cluster")' >/d
 else
   k3d cluster start iot-cluster
 fi
-if ! docker inspect k3d-iot-cluster-server-0 | jq -e '
+# K3d publishes host ports through its load balancer, including NodePorts.
+if ! docker inspect k3d-iot-cluster-serverlb | jq -e '
   .[0].HostConfig.PortBindings |
   any(."30888/tcp"[]?; .HostPort == "8888" and .HostIp == "127.0.0.1") and
   any(."30081/tcp"[]?; .HostPort == "8081" and .HostIp == "127.0.0.1")
