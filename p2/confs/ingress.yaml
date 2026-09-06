@@ -25,7 +25,6 @@ spec:
                 name: app2
                 port:
                   number: 80
-    # No host restriction: every other hostname (and the bare IP) uses app3.
     - http:
         paths:
           - path: /

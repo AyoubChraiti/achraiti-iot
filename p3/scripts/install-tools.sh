@@ -11,7 +11,7 @@ case $(uname -m) in
   *) echo 'Unsupported CPU architecture' >&2; exit 1 ;;
 esac
 apt-get update
-apt-get install -y ca-certificates curl git jq docker.io shellcheck rsync
+apt-get install -y ca-certificates curl git jq docker.io rsync
 systemctl enable --now docker
 TEMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TEMP_DIR"' EXIT

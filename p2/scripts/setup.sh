@@ -8,7 +8,7 @@ IFACE=$(ip -o -4 addr show | awk '$4 ~ /^192\.168\.56\.110\// {print $2}')
 curl -fsSL --retry 3 https://get.k3s.io -o /tmp/install-k3s.sh
 INSTALL_K3S_EXEC="server --node-ip=192.168.56.110 --advertise-address=192.168.56.110 --flannel-iface=$IFACE --node-name=achraitis --disable=metrics-server --write-kubeconfig-mode=644" \
   sh /tmp/install-k3s.sh
-# Keep the bundled Traefik ingress controller and ServiceLB in this part.
+
 timeout 180 sh -c 'until kubectl get node achraitis >/dev/null 2>&1; do sleep 2; done'
 kubectl wait --for=condition=Ready node/achraitis --timeout=180s
 kubectl apply -f /vagrant/confs/

@@ -37,7 +37,6 @@ spec:
       terminationGracePeriodSeconds: 120
       containers:
         - name: gitlab
-          # The subject requests the latest official version. Refresh at setup.
           image: gitlab/gitlab-ce:latest
           imagePullPolicy: Always
           ports:
@@ -61,7 +60,6 @@ spec:
             limits:
               memory: 5Gi
           startupProbe:
-            # GitLab monitoring endpoints allow localhost by default.
             exec:
               command: [curl, --fail, --silent, --max-time, "4", "http://127.0.0.1/-/readiness"]
             periodSeconds: 10

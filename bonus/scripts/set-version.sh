@@ -1,5 +1,4 @@
 #!/bin/bash
-# Make a real commit in local GitLab; Argo CD performs the Kubernetes update.
 set -euo pipefail
 VERSION=${1:-}
 [[ $VERSION == v1 || $VERSION == v2 ]] || { echo 'Usage: set-version.sh v1|v2' >&2; exit 1; }
@@ -21,4 +20,3 @@ else
     --header 'Content-Type: application/json' --data-binary "@$TEMP_DIR/update.json" \
     "$API/repository/files/p3%2Fconfs%2Fdeployment.yaml" >/dev/null
 fi
-bash "$SCRIPT_DIR/test.sh" "$VERSION"

@@ -6,7 +6,7 @@ data:
   index.html: |
     <!doctype html>
     <html lang="en"><head><title>app3</title></head>
-    <body><h1>app3</h1><p>Inception-of-Things — application 3</p></body></html>
+    <body><h1>app3</h1></body></html>
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -27,16 +27,6 @@ spec:
           image: nginx:stable-alpine
           ports:
             - containerPort: 80
-          readinessProbe:
-            httpGet:
-              path: /
-              port: 80
-          resources:
-            requests:
-              cpu: 10m
-              memory: 16Mi
-            limits:
-              memory: 64Mi
           volumeMounts:
             - name: html
               mountPath: /usr/share/nginx/html

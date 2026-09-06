@@ -5,7 +5,6 @@ ROOT_DIR=$(cd "$SCRIPT_DIR/../.." && pwd)
 SECRETS_DIR=$ROOT_DIR/bonus/.secrets
 k() { kubectl --context k3d-iot-cluster "$@"; }
 k -n argocd get application wil-playground >/dev/null
-# Create persistent credentials without putting them in Git or terminal output.
 umask 077
 mkdir -p "$SECRETS_DIR"
 k create namespace gitlab --dry-run=client -o yaml | k apply -f -
@@ -17,13 +16,10 @@ if ! k -n gitlab get secret gitlab-root-password >/dev/null 2>&1; then
 fi
 k -n gitlab get secret gitlab-root-password -o jsonpath='{.data.password}' | base64 -d > "$SECRETS_DIR/root-password"
 k apply -f "$SCRIPT_DIR/../confs/gitlab.yaml"
-# Restart on reruns too, so imagePullPolicy Always resolves the latest release.
-k -n gitlab rollout restart statefulset/gitlab
 k -n gitlab rollout status statefulset/gitlab --timeout=1800s
 curl -fsS --retry 12 --retry-delay 5 --retry-connrefused --max-time 10 http://127.0.0.1:8081/users/sign_in >/dev/null
 k -n gitlab exec -i gitlab-0 -- gitlab-rails runner - \
   < "$SCRIPT_DIR/create-token.rb" > "$SECRETS_DIR/api-token"
-# Keep credentials out of curl's process arguments.
 printf 'header = "PRIVATE-TOKEN: %s"\n' "$(tail -n 1 "$SECRETS_DIR/api-token")" > "$SECRETS_DIR/curl.conf"
 api() { curl --config "$SECRETS_DIR/curl.conf" -fsS --max-time 120 "$@"; }
 API=http://127.0.0.1:8081/api/v4
@@ -42,7 +38,6 @@ PROJECT_ID=$(jq -er .id "$SECRETS_DIR/project.json")
 jq -e '.visibility == "public"' "$SECRETS_DIR/project.json" >/dev/null || {
   echo 'The existing GitLab project must be public for anonymous Argo CD access.' >&2; exit 1;
 }
-# Seed only an uninitialized project; reruns must preserve a demonstrated v2.
 status=$(curl --config "$SECRETS_DIR/curl.conf" -sS -o /dev/null -w '%{http_code}' "$API/projects/$PROJECT_ID/repository/files/p3%2Fconfs%2Fdeployment.yaml?ref=main")
 case $status in
   200) echo 'Existing GitLab application manifests preserved.' ;;
@@ -61,10 +56,8 @@ case $status in
     ;;
   *) echo "GitLab manifest lookup failed (HTTP $status)." >&2; exit 1 ;;
 esac
-# One controller owns the dev app; switch its source from GitHub to GitLab.
 k apply -f "$SCRIPT_DIR/../confs/argocd-app.yaml"
 k -n argocd annotate application wil-playground argocd.argoproj.io/refresh=hard --overwrite
-bash "$SCRIPT_DIR/test.sh"
 echo 'GitLab: http://localhost:8081 — username root'
 echo "Initial password: $SECRETS_DIR/root-password (or the gitlab-root-password Kubernetes Secret)."
 echo 'Demonstrate an update: bash bonus/scripts/set-version.sh v2'

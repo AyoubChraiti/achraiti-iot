@@ -6,7 +6,6 @@ metadata:
 spec:
   project: default
   source:
-    # Cluster DNS works inside Argo CD; localhost would point to Argo CD itself.
     repoURL: http://gitlab.gitlab.svc.cluster.local/root/achraiti-iot.git
     targetRevision: main
     path: p3/confs
