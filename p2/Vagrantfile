@@ -1,16 +1,23 @@
 Vagrant.configure("2") do |config|
-  config.vm.box = "debian/trixie64"
-  # rsync works with libvirt without installing a shared-folder guest driver.
-  config.vm.synced_folder ".", "/vagrant", type: "rsync",
-    rsync__exclude: [".vagrant/"]
 
-  config.vm.define "achraitiS" do |server|
-    server.vm.hostname = "achraitiS"
-    server.vm.network "private_network", ip: "192.168.56.110"
+  config.vm.box = "debian/trixie64"
+
+  # =========================
+  # Server
+  # =========================
+  config.vm.define "mel-haddS" do |server|
+
+    server.vm.hostname = "mel-haddS"
+
+    server.vm.network "private_network",
+      ip: "192.168.56.110"
+
     server.vm.provider :libvirt do |libvirt|
       libvirt.cpus = 1
       libvirt.memory = 1024
     end
-    server.vm.provision "shell", path: "scripts/setup.sh"
+
+    server.vm.provision "shell",
+      path: "scripts/server.sh"
   end
 end

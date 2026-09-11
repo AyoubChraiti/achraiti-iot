@@ -49,7 +49,6 @@ spec:
                 nginx['listen_https'] = false
                 letsencrypt['enable'] = false
                 gitlab_rails['initial_root_password'] = File.read('/run/gitlab-root/password').strip
-                gitlab_rails['gitlab_shell_ssh_port'] = 22
                 puma['worker_processes'] = 0
                 sidekiq['concurrency'] = 10
                 prometheus_monitoring['enable'] = false

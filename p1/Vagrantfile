@@ -1,15 +1,15 @@
 Vagrant.configure("2") do |config|
   config.vm.box = "debian/trixie64"
+  config.vm.synced_folder ".", "/vagrant", disabled: true
+  config.vm.provider :libvirt do |libvirt|
+    libvirt.cpus = 1
+    libvirt.memory = 1024
+  end
   cluster_token = "achraiti-p1-token"
 
   config.vm.define "achraitiS" do |server|
     server.vm.hostname = "achraitiS"
     server.vm.network "private_network", ip: "192.168.56.110"
-
-    server.vm.provider :libvirt do |libvirt|
-      libvirt.cpus = 1
-      libvirt.memory = 1024
-    end
 
     server.vm.provision "shell",
       path: "scripts/install_server.sh",
@@ -19,11 +19,6 @@ Vagrant.configure("2") do |config|
   config.vm.define "achraitiSW" do |worker|
     worker.vm.hostname = "achraitiSW"
     worker.vm.network "private_network", ip: "192.168.56.111"
-
-    worker.vm.provider :libvirt do |libvirt|
-      libvirt.cpus = 1
-      libvirt.memory = 1024
-    end
 
     worker.vm.provision "shell",
       path: "scripts/install_worker.sh",

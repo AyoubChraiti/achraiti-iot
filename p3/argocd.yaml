@@ -1,14 +1,18 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
+
 metadata:
-  name: wil-playground
+  name: my-app
   namespace: argocd
+
 spec:
   project: default
+
   source:
-    repoURL: https://github.com/AyoubChraiti/achraiti-iot.git
-    targetRevision: main
-    path: p3/confs
+    repoURL: https://github.com/nabilaadou/42-naadou-iot
+    targetRevision: HEAD
+    path: deployment
+
   destination:
     server: https://kubernetes.default.svc
     namespace: dev
