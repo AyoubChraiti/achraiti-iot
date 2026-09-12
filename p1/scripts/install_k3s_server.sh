@@ -1,5 +1,9 @@
 #!/bin/bash
 set -euo pipefail
+
+apt-get update -y
+apt-get install -y curl
+
 curl -sfL https://get.k3s.io | K3S_TOKEN="iotp1sharedtoken" sh -s - server \
   --node-ip=192.168.56.110 \
   --bind-address=192.168.56.110 \
