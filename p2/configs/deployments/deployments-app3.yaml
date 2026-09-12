@@ -22,15 +22,4 @@ spec:
             - -c
             - |
               echo "<h1>Hello from App3</h1>" > /usr/share/nginx/html/index.html
-              exec nginx -g 'daemon off;'
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: app3-service
-spec:
-  selector:
-    app: app3
-  ports:
-    - port: 80
-      targetPort: 80
+              nginx -g 'daemon off;'
