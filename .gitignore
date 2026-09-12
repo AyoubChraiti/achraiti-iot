@@ -1,5 +1,1 @@
 .vagrant/
-.secrets/
-.kube/
-*.log
-__pycache__/

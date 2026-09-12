@@ -2,244 +2,74 @@
 
 set -euo pipefail
 
-echo "========================================"
-echo " Installing k3d environment"
-echo " Docker + kubectl + k3d"
-echo "========================================"
+readonly CLUSTER_NAME="mycluster"
 
-# --------------------------------------------------
-# 1. Check operating system
-# --------------------------------------------------
+readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+readonly APP_MANIFEST="${SCRIPT_DIR}/../argocd.yaml"
+readonly ARGOCD_INSTALL_URL="https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml"
 
-if [ ! -f /etc/os-release ]; then
-    echo "Error: Cannot determine Linux distribution."
+[[ -f "$APP_MANIFEST" ]] || {
+    echo "Missing Argo CD application manifest: $APP_MANIFEST" >&2
     exit 1
-fi
+}
 
-source /etc/os-release
-
-if [[ "$ID" != "ubuntu" && "$ID" != "debian" ]]; then
-    echo "Error: This script supports Ubuntu and Debian only."
-    exit 1
-fi
-
-echo "[+] Detected OS: $PRETTY_NAME"
-
-
-# --------------------------------------------------
-# 2. Determine the real user
-# --------------------------------------------------
-# If the script is executed with sudo, $USER becomes root.
-# SUDO_USER gives us the user who originally invoked sudo.
-
-TARGET_USER="${SUDO_USER:-$USER}"
-
-echo "[+] Target user: $TARGET_USER"
-
-
-# --------------------------------------------------
-# 3. Install basic dependencies
-# --------------------------------------------------
-
-echo "[+] Installing base dependencies..."
+sudo -v
 
 sudo apt-get update
+sudo apt-get install -y ca-certificates curl
 
-sudo apt-get install -y \
-    ca-certificates \
-    curl \
-    gnupg
+# Install Docker
+if ! command -v docker >/dev/null; then
+    curl -fsSL https://get.docker.com | sudo sh
+fi
 
+sudo systemctl enable --now docker
+sudo usermod -aG docker "$USER"
 
-# --------------------------------------------------
-# 4. Install Docker
-# --------------------------------------------------
+# Install kubectl
+if ! command -v kubectl >/dev/null; then
+    curl -fsSLo /tmp/kubectl \
+        "https://dl.k8s.io/release/v1.37.0/bin/linux/amd64/kubectl"
 
-echo "[+] Installing Docker..."
+    sudo install -m 0755 /tmp/kubectl /usr/local/bin/kubectl
+    rm -f /tmp/kubectl
+fi
 
-# Docker's official GPG key directory
-sudo install -m 0755 -d /etc/apt/keyrings
+# Install k3d
+if ! command -v k3d >/dev/null; then
+    curl -fsSL https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+fi
 
-# Select Docker repository depending on the distribution
-if [ "$ID" = "ubuntu" ]; then
-    DOCKER_URL="https://download.docker.com/linux/ubuntu"
-    DOCKER_CODENAME="${UBUNTU_CODENAME:-$VERSION_CODENAME}"
+# Reload Docker group permissions by restarting this script once
+if ! docker info >/dev/null 2>&1; then
+    exec sg docker -c "$0"
+fi
+
+# Create or start cluster
+if k3d cluster list --no-headers | awk '{print $1}' | grep -Fxq "$CLUSTER_NAME"; then
+    k3d cluster start "$CLUSTER_NAME" --wait
 else
-    DOCKER_URL="https://download.docker.com/linux/debian"
-    DOCKER_CODENAME="$VERSION_CODENAME"
+    k3d cluster create "$CLUSTER_NAME" --wait
 fi
 
-# Download Docker's signing key
-sudo curl -fsSL \
-    "$DOCKER_URL/gpg" \
-    -o /etc/apt/keyrings/docker.asc
+# configuring kubectl to use the newly created k3d clusted as the default context
+kubectl config use-context "k3d-${CLUSTER_NAME}"
 
-sudo chmod a+r /etc/apt/keyrings/docker.asc
+# Create namespaces
+# i create namespaces this way instead of just "kubectl create namespace " so i don't get the error namespace already exists when the script is executed multiple times
+kubectl create namespace dev --dry-run=client -o yaml | kubectl apply -f -
+kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
 
-# Add Docker repository
-sudo tee /etc/apt/sources.list.d/docker.sources > /dev/null <<EOF
-Types: deb
-URIs: $DOCKER_URL
-Suites: $DOCKER_CODENAME
-Components: stable
-Architectures: $(dpkg --print-architecture)
-Signed-By: /etc/apt/keyrings/docker.asc
-EOF
+# Install Argo CD
+kubectl apply -n argocd \
+    --server-side \
+    --force-conflicts \
+    -f "$ARGOCD_INSTALL_URL"
 
-sudo apt-get update
+kubectl wait \
+    --for=condition=Established \
+    crd/applications.argoproj.io \
+    --timeout=120s
 
-# Install Docker Engine and related components
-sudo apt-get install -y \
-    docker-ce \
-    docker-ce-cli \
-    containerd.io \
-    docker-buildx-plugin \
-    docker-compose-plugin
-
-
-# --------------------------------------------------
-# 5. Start and enable Docker
-# --------------------------------------------------
-
-echo "[+] Starting Docker..."
-
-sudo systemctl enable docker
-sudo systemctl start docker
-
-
-# --------------------------------------------------
-# 6. Allow current user to use Docker without sudo
-# --------------------------------------------------
-
-echo "[+] Adding $TARGET_USER to docker group..."
-
-sudo usermod -aG docker "$TARGET_USER"
-
-
-# --------------------------------------------------
-# 7. Verify Docker
-# --------------------------------------------------
-
-echo "[+] Verifying Docker installation..."
-
-sudo docker version
-
-echo "[+] Testing Docker..."
-
-sudo docker run --rm hello-world
-
-
-# --------------------------------------------------
-# 8. Install kubectl
-# --------------------------------------------------
-
-echo "[+] Installing kubectl..."
-
-# Determine CPU architecture
-ARCH="$(uname -m)"
-
-case "$ARCH" in
-    x86_64)
-        KUBECTL_ARCH="amd64"
-        ;;
-    aarch64|arm64)
-        KUBECTL_ARCH="arm64"
-        ;;
-    armv7l)
-        KUBECTL_ARCH="arm"
-        ;;
-    *)
-        echo "Unsupported CPU architecture: $ARCH"
-        exit 1
-        ;;
-esac
-
-# Get latest stable Kubernetes release
-KUBECTL_VERSION="$(
-    curl -L -s https://dl.k8s.io/release/stable.txt
-)"
-
-echo "[+] Installing kubectl $KUBECTL_VERSION..."
-
-curl -LO \
-    "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${KUBECTL_ARCH}/kubectl"
-
-curl -LO \
-    "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${KUBECTL_ARCH}/kubectl.sha256"
-
-# Verify checksum
-echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check
-
-# Install binary
-sudo install \
-    -o root \
-    -g root \
-    -m 0755 \
-    kubectl \
-    /usr/local/bin/kubectl
-
-rm -f kubectl kubectl.sha256
-
-
-# --------------------------------------------------
-# 9. Install k3d
-# --------------------------------------------------
-
-echo "[+] Installing k3d..."
-
-curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
-
-
-# --------------------------------------------------
-# 10. Verify installations
-# --------------------------------------------------
-
-echo
-echo "========================================"
-echo " Installation versions"
-echo "========================================"
-
-echo
-echo "Docker:"
-docker --version || sudo docker --version
-
-echo
-echo "kubectl:"
-kubectl version --client
-
-echo
-echo "k3d:"
-k3d version
-
-
-# --------------------------------------------------
-# Done
-# --------------------------------------------------
-
-echo
-echo "========================================"
-echo " Installation complete!"
-echo "========================================"
-echo
-echo "IMPORTANT:"
-echo
-echo "Your user was added to the 'docker' group."
-echo "You must log out and log back in for the"
-echo "group change to fully take effect."
-echo
-echo "Alternatively, run:"
-echo
-echo "    newgrp docker"
-echo
-echo "Then test:"
-echo
-echo "    docker ps"
-echo
-echo "You can then create your k3d cluster with:"
-echo
-echo "    k3d cluster create mycluster"
-echo
-echo "And verify it with:"
-echo
-echo "    kubectl get nodes"
-echo
+# Create Argo CD Application
+kubectl apply -f "$APP_MANIFEST"
