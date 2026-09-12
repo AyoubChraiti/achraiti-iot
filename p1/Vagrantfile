@@ -1,27 +1,24 @@
 Vagrant.configure("2") do |config|
-  config.vm.box = "debian/trixie64"
-  config.vm.synced_folder ".", "/vagrant", disabled: true
-  config.vm.provider :libvirt do |libvirt|
-    libvirt.cpus = 1
-    libvirt.memory = 1024
-  end
-  cluster_token = "achraiti-p1-token"
+  config.vm.box = "generic/debian12"
+  config.vm.synced_folder ".", "/vagrant", type: "rsync", rsync__exclude: [".vagrant/"]
 
   config.vm.define "achraitiS" do |server|
     server.vm.hostname = "achraitiS"
     server.vm.network "private_network", ip: "192.168.56.110"
-
-    server.vm.provision "shell",
-      path: "scripts/install_server.sh",
-      env: { "K3S_TOKEN" => cluster_token }
+    server.vm.provider "libvirt" do |lv|
+      lv.memory = 1024
+      lv.cpus = 1
+    end
+    server.vm.provision "shell", path: "scripts/install_k3s_server.sh"
   end
 
   config.vm.define "achraitiSW" do |worker|
     worker.vm.hostname = "achraitiSW"
     worker.vm.network "private_network", ip: "192.168.56.111"
-
-    worker.vm.provision "shell",
-      path: "scripts/install_worker.sh",
-      env: { "K3S_TOKEN" => cluster_token }
+    worker.vm.provider "libvirt" do |lv|
+      lv.memory = 1024
+      lv.cpus = 1
+    end
+    worker.vm.provision "shell", path: "scripts/install_k3s_agent.sh"
   end
 end
